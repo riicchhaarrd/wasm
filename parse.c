@@ -164,22 +164,111 @@ void read_section_type(stream_t* s)
 	}
 }
 
+int read_string(stream_t *s, char *out, size_t outlen)
+{
+    u32 numbytes = stream_decode_leb_128(s);
+    size_t n = 0;
+    while (n < numbytes)
+    {
+        if (n >= outlen)
+        {
+			out[n] = 0;
+            return 1;
+        }
+        u8 b = stream_get(s);
+		out[n++] = b;
+    }
+	out[n] = 0;
+	return 0;
+}
+
+typedef enum
+{
+	k_EDescTagFunc = 0,
+	k_EDescTagTable = 1,
+	k_EDescTagMemory = 2,
+	k_EDescTagGlobal = 3
+} k_EDescTag;
+
+static const char *desc_tag_strings[] = {
+	"func", "table", "memory", "global", NULL
+};
+
+void read_section_import(stream_t *s)
+{
+    size_t numimports = stream_get(s);
+    printf("numimports=%d\n", numimports);
+    for (size_t i = 0; i < numimports; ++i)
+    {
+		printf("import %d\n", i);
+        // read name
+        while (1)
+        {
+			char module[32] = {0};
+			read_string(s, module, sizeof(module));
+			char name[32] = {0};
+			read_string(s, name, sizeof(name));
+			u8 desc_tag = stream_get(s);
+            printf("module = %s, name = %s, desc_tag = %s\n", module, name, desc_tag_strings[desc_tag]);
+            switch (desc_tag)
+            {
+
+			case k_EDescTagFunc: {
+                u32 idx = stream_decode_leb_128(s);
+				printf("idx=%d\n",idx);
+            }
+            break;
+
+			case k_EDescTagGlobal: {
+                u32 idx = stream_decode_leb_128(s);
+                u32 idx2 = stream_decode_leb_128(s);
+				printf("idx=%d,idx2=%d\n",idx,idx2);
+            }
+            break;
+			
+            default:
+				printf("Unhandled description tag %d\n");
+				exit(-1);
+                break;
+            }
+            getchar();
+        }
+    }
+}
+
+typedef struct
+{
+	int id;
+	void (*fn)(stream_t*);
+} section_id_t;
+
+static const section_id_t section_ids[] = {
+	{k_ESectionIdType, read_section_type},
+	{k_ESectionIdImport, read_section_import},
+	{0, NULL}
+};
+
 void read_section(stream_t *s)
 {
 	u8 type = stream_get(s);
 	u32 sz = stream_decode_leb_128(s);
 	const char* section_id_string = section_id_strings[type];
-	printf("section %s (%x bytes)\n", section_id_string, sz);
+	printf("Section %s (%x bytes)\n", section_id_string, sz);
 
-	switch (type)
-	{
-		case k_ESectionIdType:
-			read_section_type(s);
-			break;
-		default:
-			printf("unhandled section %s\n", section_id_string);
-			break;
-	}
+	bool fnd = false;
+    for (size_t i = 0; section_ids[i].fn; ++i)
+    {
+        if (section_ids[i].id == type)
+        {
+            section_ids[i].fn(s);
+            fnd = true;
+            break;
+        }
+    }
+    if (!fnd)
+    {
+			printf("Unhandled section %s\n", section_id_string);
+    }
 }
 
 int main(int argc, char **argv)
@@ -207,6 +296,7 @@ int main(int argc, char **argv)
 	printf("magic = %c, %c, %c, %c\n", magic[0], magic[1], magic[2], magic[3]);
 	printf("version = %d\n", version);
 
+	read_section(&s);
 	read_section(&s);
 	
 	free(buf);
