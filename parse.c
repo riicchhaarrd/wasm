@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <assert.h>
+#include <stdlib.h>
 
 typedef uint8_t u8;
 typedef uint16_t u16;
@@ -194,6 +195,38 @@ static const char *desc_tag_strings[] = {
 	"func", "table", "memory", "global", NULL
 };
 
+void stream_decode_limits(stream_t* s, u32* min, u32* max, u8 *max_present)
+{
+	*min = *max = 0;
+	u8 present = stream_get(s);
+	*min = stream_decode_leb_128(s);
+	if (present)
+	{
+		*max = stream_decode_leb_128(s);
+	}
+	if (max_present)
+		*max_present = present;
+}
+
+void stream_decode_value_type(stream_t *s, k_EValueType *type)
+{
+	*type = (k_EValueType)stream_get(s);
+	//TODO: add check whether it's a valid type
+}
+
+void stream_decode_ref_type(stream_t *s, k_EValueType *type)
+{
+	*type = (k_EValueType)stream_get(s);
+	assert(*type == 0x70 || *type == 0x6f);
+}
+
+void stream_decode_mut(stream_t* s, bool *mut)
+{
+	u8 b = stream_get(s);
+	assert(b == 0 || b == 1);
+	*mut = b != 0;
+}
+
 void read_section_import(stream_t *s)
 {
     size_t numimports = stream_get(s);
@@ -201,39 +234,57 @@ void read_section_import(stream_t *s)
     for (size_t i = 0; i < numimports; ++i)
     {
 		printf("import %d\n", i);
-        // read name
-        while (1)
-        {
-			char module[32] = {0};
-			read_string(s, module, sizeof(module));
-			char name[32] = {0};
-			read_string(s, name, sizeof(name));
-			u8 desc_tag = stream_get(s);
-            printf("module = %s, name = %s, desc_tag = %s\n", module, name, desc_tag_strings[desc_tag]);
-            switch (desc_tag)
-            {
+		char module[32] = {0};
+		read_string(s, module, sizeof(module));
+		char name[32] = {0};
+		read_string(s, name, sizeof(name));
+		u8 desc_tag = stream_get(s);
+		printf("module = %s, name = %s, desc_tag = %s\n", module, name, desc_tag_strings[desc_tag]);
+		switch (desc_tag)
+		{
 
-			case k_EDescTagFunc: {
-                u32 idx = stream_decode_leb_128(s);
-				printf("idx=%d\n",idx);
-            }
-            break;
+			case k_EDescTagMemory:
+			{
+				u32 min, max;
+				u8 present;
+				stream_decode_limits(s, &min, &max, &present);
+			}
+			break;
 
-			case k_EDescTagGlobal: {
-                u32 idx = stream_decode_leb_128(s);
-                u32 idx2 = stream_decode_leb_128(s);
-				printf("idx=%d,idx2=%d\n",idx,idx2);
-            }
-            break;
-			
-            default:
-				printf("Unhandled description tag %d\n");
+			case k_EDescTagTable:
+			{
+				k_EValueType reftype;
+				u32 min, max;
+				u8 present;
+				stream_decode_ref_type(s, &reftype);
+				stream_decode_limits(s, &min, &max, &present);
+				printf("min = %d, max = %d, reftype = %x\n", min, max, reftype);
+			}
+			break;
+
+			case k_EDescTagFunc:
+			{
+				u32 typeidx = stream_decode_leb_128(s);
+				printf("typeidx = %d\n", typeidx);
+			}
+			break;
+
+			case k_EDescTagGlobal:
+			{
+				bool mut;
+				k_EValueType valtype;
+				stream_decode_value_type(s, &valtype);
+				stream_decode_mut(s, &mut);
+				printf("mutable %d, value type = %s\n", mut, value_type_to_string(valtype));
+			}
+			break;
+
+			default:
+				printf("Unhandled description tag %s\n", desc_tag_strings[desc_tag]);
 				exit(-1);
-                break;
-            }
-            getchar();
-        }
-    }
+				break;
+		}
+	}
 }
 
 typedef struct
