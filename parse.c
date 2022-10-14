@@ -259,14 +259,67 @@ void stream_decode_globaltype(stream_t *s, globaltype_t *gt)
 
 typedef struct
 {
-} instruction_t;
+} expression_t;
 
 typedef struct
 {
-} expression_t;
+	globaltype_t gt;
+	expression_t expr;
+} global_t;
 
-void stream_decode_instruction(stream_t *s, instruction_t *instr)
+typedef struct
 {
+	u8 opcode;
+} instruction_t;
+
+typedef enum
+{
+    k_EOpcodeEnd = 0xb,
+    k_EOpcodeGlobalGet = 0x23,
+    k_EOpcodeI32Const = 0x41,
+    k_EOpcodeF32Const = 0x43,
+    k_EOpcodeF64Const = 0x44,
+} k_EOpcode;
+
+bool stream_decode_instruction(stream_t *s, instruction_t *instr)
+{
+	u8 op = stream_get(s);
+    switch (op)
+    {
+    case k_EOpcodeEnd:
+        return false;
+		
+    case k_EOpcodeI32Const:
+	{
+		i32 i = stream_decode_leb_128_signed(s);
+		printf("i32 const %d\n", i);
+    } break;
+	
+    case k_EOpcodeF64Const:
+	{
+        double f;
+        stream_read(s, &f, sizeof(f));
+        printf("f64 const %f\n", f);
+    } break;
+    case k_EOpcodeF32Const:
+	{
+        float f;
+        stream_read(s, &f, sizeof(f));
+        printf("f32 const %f\n", f);
+    } break;
+	
+    case k_EOpcodeGlobalGet:
+	{
+		u32 globalidx = stream_decode_leb_128(s);
+		printf("global.get %d\n", globalidx);
+    } break;
+    default:
+		printf("Unhandled instruction opcode 0x%x\n", op);
+		exit(-1);
+        break;
+    }
+    instr->opcode = op;
+	return true;
 }
 
 void stream_decode_expression(stream_t *s, expression_t *gt)
@@ -281,6 +334,11 @@ void read_section_global(stream_t *s)
         globaltype_t gt;
         stream_decode_globaltype(s, &gt);
 		printf("%d: mutable %d, valtype %s\n", i, gt.mut, value_type_to_string(gt.valtype));
+		instruction_t instr;
+        do
+        {
+			//TODO: add to instruction list etc
+        } while (stream_decode_instruction(s, &instr));
     }
 }
 
