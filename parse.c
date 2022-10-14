@@ -75,6 +75,24 @@ u32 stream_decode_leb_128(stream_t* s)
 	return result;
 }
 
+i32 stream_decode_leb_128_signed(stream_t* s)
+{
+	i32 result = 0;
+	u32 shift = 0;
+	u8 byte;
+	while (1)
+	{
+		byte = stream_get(s);
+		result |= (byte & 0x7f) << shift;
+		if(!(byte & 0x80))
+			break;
+		shift += 7;
+	}
+	if(shift < 32 && (byte & 0x40))
+		result |= (~0 << shift);
+	return result;
+}
+
 #define STREAM_READ(x, t) stream_read(&x, (u8*)&t, sizeof(t))
 
 typedef enum
