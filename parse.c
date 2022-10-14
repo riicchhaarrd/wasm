@@ -227,6 +227,55 @@ void stream_decode_mut(stream_t* s, bool *mut)
 	*mut = b != 0;
 }
 
+typedef struct
+{
+	bool mut;
+	k_EValueType valtype;
+} globaltype_t;
+
+void stream_decode_globaltype(stream_t *s, globaltype_t *gt)
+{
+    stream_decode_value_type(s, &gt->valtype);
+    stream_decode_mut(s, &gt->mut);
+}
+
+typedef struct
+{
+} instruction_t;
+
+typedef struct
+{
+} expression_t;
+
+void stream_decode_instruction(stream_t *s, instruction_t *instr)
+{
+}
+
+void stream_decode_expression(stream_t *s, expression_t *gt)
+{
+}
+
+void read_section_global(stream_t *s)
+{
+    u32 n = stream_decode_leb_128(s);
+    for (size_t i = 0; i < n; ++i)
+    {
+        globaltype_t gt;
+        stream_decode_globaltype(s, &gt);
+		printf("%d: mutable %d, valtype %s\n", i, gt.mut, value_type_to_string(gt.valtype));
+    }
+}
+
+void read_section_function(stream_t *s)
+{
+    u32 n = stream_decode_leb_128(s);
+    for (size_t i = 0; i < n; ++i)
+    {
+		u32 typeidx = stream_decode_leb_128(s);
+		printf("%d -> %d\n", i, typeidx);
+    }
+}
+
 void read_section_import(stream_t *s)
 {
     size_t numimports = stream_get(s);
@@ -271,11 +320,9 @@ void read_section_import(stream_t *s)
 
 			case k_EDescTagGlobal:
 			{
-				bool mut;
-				k_EValueType valtype;
-				stream_decode_value_type(s, &valtype);
-				stream_decode_mut(s, &mut);
-				printf("mutable %d, value type = %s\n", mut, value_type_to_string(valtype));
+				globaltype_t gt;
+				stream_decode_globaltype(s, &gt);
+				printf("mutable %d, value type = %s\n", gt.mut, value_type_to_string(gt.valtype));
 			}
 			break;
 
@@ -296,6 +343,8 @@ typedef struct
 static const section_id_t section_ids[] = {
 	{k_ESectionIdType, read_section_type},
 	{k_ESectionIdImport, read_section_import},
+	{k_ESectionIdFunction, read_section_function},
+	{k_ESectionIdGlobal, read_section_global},
 	{0, NULL}
 };
 
@@ -347,6 +396,8 @@ int main(int argc, char **argv)
 	printf("magic = %c, %c, %c, %c\n", magic[0], magic[1], magic[2], magic[3]);
 	printf("version = %d\n", version);
 
+	read_section(&s);
+	read_section(&s);
 	read_section(&s);
 	read_section(&s);
 	
