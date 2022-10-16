@@ -326,6 +326,28 @@ void stream_decode_expression(stream_t *s, expression_t *gt)
 {
 }
 
+
+typedef struct
+{
+	char name[32];
+	u8 type;
+	u32 idx;
+} export_t;
+
+void read_section_export(stream_t* s)
+{
+	u32 n = stream_decode_leb_128(s);
+	for (size_t i = 0; i < n; ++i)
+	{
+		export_t ex;
+		ex.name[0] = 0;
+		read_string(s, ex.name, sizeof(ex.name));
+		ex.type = stream_get(s);
+		ex.idx = stream_decode_leb_128(s);
+		printf("\texport '%s', type = %d, idx = %d\n", ex.name, ex.type, ex.idx);
+	}
+}
+
 void read_section_global(stream_t *s)
 {
     u32 n = stream_decode_leb_128(s);
@@ -421,6 +443,7 @@ static const section_id_t section_ids[] = {
 	{k_ESectionIdImport, read_section_import},
 	{k_ESectionIdFunction, read_section_function},
 	{k_ESectionIdGlobal, read_section_global},
+	{k_ESectionIdExport, read_section_export},
 	{0, NULL}
 };
 
@@ -472,6 +495,7 @@ int main(int argc, char **argv)
 	printf("magic = %c, %c, %c, %c\n", magic[0], magic[1], magic[2], magic[3]);
 	printf("version = %d\n", version);
 
+	read_section(&s);
 	read_section(&s);
 	read_section(&s);
 	read_section(&s);
