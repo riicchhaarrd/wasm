@@ -148,13 +148,14 @@ static const char* value_type_to_string(u8 type)
 	return NULL;
 }
 
-void read_section_type(stream_t* s)
+void read_section_type(stream_t* s, size_t section_size)
 {
 	printf("reading section type\n");
 	size_t numtypes = stream_get(s);
 	for (size_t i = 0; i < numtypes; ++i)
 	{
 		u8 tag = stream_get(s);
+		printf("tag=%d\n",tag);
 		assert(tag == 0x60);
 		u32 numparms = stream_decode_leb_128(s);
 		/* printf("numparms = %d\n", numparms); */
@@ -326,7 +327,6 @@ void stream_decode_expression(stream_t *s, expression_t *gt)
 {
 }
 
-
 typedef struct
 {
 	char name[32];
@@ -334,7 +334,7 @@ typedef struct
 	u32 idx;
 } export_t;
 
-void read_section_export(stream_t* s)
+void read_section_export(stream_t* s, size_t section_size)
 {
 	u32 n = stream_decode_leb_128(s);
 	for (size_t i = 0; i < n; ++i)
@@ -348,7 +348,7 @@ void read_section_export(stream_t* s)
 	}
 }
 
-void read_section_global(stream_t *s)
+void read_section_global(stream_t *s, size_t section_size)
 {
     u32 n = stream_decode_leb_128(s);
     for (size_t i = 0; i < n; ++i)
@@ -364,7 +364,7 @@ void read_section_global(stream_t *s)
     }
 }
 
-void read_section_function(stream_t *s)
+void read_section_function(stream_t *s, size_t section_size)
 {
     u32 n = stream_decode_leb_128(s);
     for (size_t i = 0; i < n; ++i)
@@ -374,7 +374,69 @@ void read_section_function(stream_t *s)
     }
 }
 
-void read_section_import(stream_t *s)
+void read_section_start(stream_t* s, size_t section_size)
+{
+	u32 func = stream_decode_leb_128(s);
+	printf("start func=%u\n",func);
+}
+
+void read_section_memory(stream_t* s, size_t section_size)
+{
+	u32 n = stream_decode_leb_128(s);
+	for (size_t i = 0; i < n; ++i)
+	{
+		u32 min, max;
+		u8 present;
+		stream_decode_limits(s, &min, &max, &present);
+		printf("memory %d: min:%u, max:%u, present:%d\n",i, min, max, present);
+    }
+}
+void read_section_custom(stream_t* s, size_t section_size)
+{
+	// Skip and ignore
+	s->cursor += section_size;
+}
+void read_section_data(stream_t* s, size_t section_size)
+{
+	// Skip and ignore
+	s->cursor += section_size;
+}
+void read_section_code(stream_t* s, size_t section_size)
+{
+	u32 n = stream_decode_leb_128(s);
+	printf("read_section_code n = %u\n", n);
+	for (size_t i = 0; i < n; ++i)
+	{
+		u32 size = stream_decode_leb_128(s);
+		
+		s->cursor += size;
+		continue;
+		#if 0
+		u32 numlocals = stream_decode_leb_128(s);
+		printf("code size: %u, %u locals\n", size, numlocals);
+		for(u32 local_idx = 0; local_idx < numlocals; ++local_idx)
+		{
+			u32 numlocalentries = stream_decode_leb_128(s);
+			/*
+			Note
+			Value types can occur in contexts where type indices are also allowed, such as in the case of block types. Thus, the binary format for types corresponds to the signed LEB128 encoding of small negative
+			values, so that they can coexist with (positive) type indices in the future.
+			*/
+			i32 local_type = stream_decode_leb_128_signed(s);
+			printf("local[%u]: entries: %u, type: %02X\n", local_idx, numlocalentries, local_type);
+		}
+		/*
+		instruction_t instr;
+		do
+		{
+			//TODO: add to instruction list etc
+		} while (stream_decode_instruction(s, &instr));
+		*/
+		#endif
+    }
+}
+
+void read_section_import(stream_t *s, size_t section_size)
 {
     size_t numimports = stream_get(s);
     printf("numimports=%d\n", numimports);
@@ -435,7 +497,7 @@ void read_section_import(stream_t *s)
 typedef struct
 {
 	int id;
-	void (*fn)(stream_t*);
+	void (*fn)(stream_t*, size_t);
 } section_id_t;
 
 static const section_id_t section_ids[] = {
@@ -444,22 +506,29 @@ static const section_id_t section_ids[] = {
 	{k_ESectionIdFunction, read_section_function},
 	{k_ESectionIdGlobal, read_section_global},
 	{k_ESectionIdExport, read_section_export},
+	{k_ESectionIdStart, read_section_start},
+	{k_ESectionIdMemory, read_section_memory},
+	{k_ESectionIdCode, read_section_code},
+	{k_ESectionIdCustom, read_section_custom},
+	{k_ESectionIdData, read_section_data},
 	{0, NULL}
 };
 
 void read_section(stream_t *s)
 {
+	printf("%zu/%zu\n", s->cursor, s->sz);
 	u8 type = stream_get(s);
 	u32 sz = stream_decode_leb_128(s);
 	const char* section_id_string = section_id_strings[type];
-	printf("Section %s (%x bytes)\n", section_id_string, sz);
-
+	printf("Section %s (%d) (%x bytes)\n", section_id_string, type, sz);
+	if(sz == 0)
+		return;
 	bool fnd = false;
     for (size_t i = 0; section_ids[i].fn; ++i)
     {
         if (section_ids[i].id == type)
         {
-            section_ids[i].fn(s);
+            section_ids[i].fn(s, sz);
             fnd = true;
             break;
         }
@@ -495,11 +564,8 @@ int main(int argc, char **argv)
 	printf("magic = %c, %c, %c, %c\n", magic[0], magic[1], magic[2], magic[3]);
 	printf("version = %d\n", version);
 
-	read_section(&s);
-	read_section(&s);
-	read_section(&s);
-	read_section(&s);
-	read_section(&s);
+	while(s.cursor < s.sz)
+		read_section(&s);
 	
 	free(buf);
 	return 0;
